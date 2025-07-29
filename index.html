@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>即時聊天室 - 主頁</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 20px; max-width: 500px; margin: auto; }
+  #adminBtn {
+    display: none;
+    margin-top: 15px;
+    padding: 10px 20px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+  }
+  #loginButtons button {
+    margin: 5px;
+    padding: 10px 15px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<h1>即時聊天室</h1>
+
+<div id="loginButtons">
+  <button id="googleLogin">Google 登入</button>
+  <button id="anonymousLogin">匿名登入</button>
+</div>
+
+<div id="userInfo" style="display:none;">
+  <p>歡迎，<span id="userName"></span>！</p>
+  <button id="logoutBtn">登出</button>
+</div>
+
+<button id="adminBtn">管理員控制台</button>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js";
+  import {
+    getAuth, onAuthStateChanged, signInWithPopup,
+    GoogleAuthProvider, signOut, signInAnonymously
+  } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBGwhduNhNnWVGv90NxYo24VqxBvTOtWdY",
+    authDomain: "china-trip-chat.firebaseapp.com",
+    databaseURL: "https://china-trip-chat-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "china-trip-chat",
+    storageBucket: "china-trip-chat.appspot.com",
+    messagingSenderId: "745385089997",
+    appId: "1:745385089997:web:665125e7a74bac1cdc4284"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+
+  const googleLoginBtn = document.getElementById("googleLogin");
+  const anonymousLoginBtn = document.getElementById("anonymousLogin");
+  const logoutBtn = document.getElementById("logoutBtn");
+  const userNameSpan = document.getElementById("userName");
+  const userInfoDiv = document.getElementById("userInfo");
+  const loginButtonsDiv = document.getElementById("loginButtons");
+  const adminBtn = document.getElementById("adminBtn");
+
+  // 管理員 UID 清單，請改成你的管理員 UID
+  const adminUIDs = [
+    "W8xAOxDaicWIxhFDJJfxsBVg3LH2"
+  ];
+
+  // Google 登入
+  googleLoginBtn.onclick = () => {
+    const provider = new GoogleAuthProvider();
+    signInWithPopup(auth, provider).catch(err => alert("Google 登入失敗：" + err.message));
+  };
+
+  // 匿名登入（匿名登入後，必須輸入名稱，這裡簡化只示範匿名登入）
+  anonymousLoginBtn.onclick = () => {
+    signInAnonymously(auth).catch(err => alert("匿名登入失敗：" + err.message));
+  };
+
+  // 登出
+  logoutBtn.onclick = () => {
+    signOut(auth);
+  };
+
+  onAuthStateChanged(auth, user => {
+    if (user) {
+      // 登入成功
+      loginButtonsDiv.style.display = "none";
+      userInfoDiv.style.display = "block";
+
+      // 顯示名稱（匿名用 "匿名使用者"）
+      userNameSpan.textContent = user.isAnonymous ? "匿名使用者" : (user.displayName || "使用者");
+
+      // 顯示管理員按鈕（只有 UID 在 adminUIDs 中的用戶可見）
+      if (adminUIDs.includes(user.uid)) {
+        adminBtn.style.display = "inline-block";
+      } else {
+        adminBtn.style.display = "none";
+      }
+
+      // 按下管理員按鈕跳轉 admin.html
+      adminBtn.onclick = () => {
+        if (adminUIDs.includes(user.uid)) {
+          window.location.href = "admin.html";
+        } else {
+          alert("你不是管理員，無法進入控制台");
+        }
+      };
+
+      console.log("登入 UID：", user.uid);
+    } else {
+      // 登出狀態
+      loginButtonsDiv.style.display = "block";
+      userInfoDiv.style.display = "none";
+      adminBtn.style.display = "none";
+      userNameSpan.textContent = "";
+    }
+  });
+</script>
+
+</body>
+</html>
+
