@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>即時聊天室 (整合公告欄版)</title>
+<style>
+  body,html {
+    margin:0; padding:0; height:100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+      Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+    display: flex; flex-direction: column;
+    background: #f8f9fa;
+  }
+  #header {
+    background:#007bff; color:#fff; padding:12px;
+    text-align:center; font-weight: bold;
+  }
+  #announcement-bar {
+    background: #fffae6; 
+    border: 1px solid #ffd42a; 
+    padding: 8px; 
+    font-weight: bold; 
+    text-align: center; 
+    display: none;
+  }
+  #container {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    height: calc(100% - 96px);
+  }
+  #groups, #chat, #users {
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    margin: 8px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+  }
+  #groups {
+    width: 20%;
+    min-width: 140px;
+  }
+  #users {
+    width: 20%;
+    min-width: 140px;
+  }
+  #chat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 8px;
+    background: #fafafa;
+    margin-bottom: 8px;
+  }
+  #messages li {
+    margin-bottom: 6px;
+    word-break: break-word;
+  }
+  #messages li span.time {
+    color: #999;
+    font-size: 0.8em;
+    margin-right: 6px;
+  }
+  #message-form {
+    display: flex;
+  }
+  #message-input {
+    flex: 1;
+    padding: 8px;
+    font-size: 1em;
+    border-radius: 4px 0 0 4px;
+    border: 1px solid #ccc;
+    border-right: none;
+  }
+  #send-btn {
+    padding: 8px 16px;
+    font-size: 1em;
+    border-radius: 0 4px 4px 0;
+    border: 1px solid #007bff;
+    background: #007bff;
+    color: white;
+    cursor: pointer;
+  }
+  #login-section {
+    padding: 12px;
+    background: white;
+    border-radius: 6px;
+    max-width: 320px;
+    margin: 20px auto;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    text-align: center;
+  }
+  #login-section input {
+    width: 80%;
+    padding: 8px;
+    margin: 8px 0;
+    font-size: 1em;
+  }
+  #login-section button {
+    margin: 8px 4px;
+    padding: 8px 12px;
+    font-size: 1em;
+    cursor: pointer;
+  }
+  #users-list, #groups-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    overflow-y: auto;
+    flex: 1;
+  }
+  #groups-list li, #users-list li {
+    padding: 6px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+  }
+  #groups-list li.selected {
+    background: #007bff;
+    color: white;
+  }
+  /* 手機版調整 */
+  @media screen and (max-width: 768px) {
+    #container {
+      flex-direction: column;
+      height: auto;
+    }
+    #groups, #users {
+      width: 100%;
+      min-width: auto;
+      height: 100px;
+      margin: 4px 0;
+      flex-direction: row;
+      overflow-x: auto;
+    }
+    #groups-list, #users-list {
+      display: flex;
+      flex-direction: row;
+      overflow-x: auto;
+      height: 100%;
+    }
+    #groups-list li, #users-list li {
+      border: 1px solid #ddd;
+      margin-right: 8px;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    #chat {
+      height: 300px;
+      margin: 4px 0;
+    }
+  }
+</style>
+</head>
+<body>
+  <div id="header">即時多群組聊天室</div>
+  <div id="announcement-bar">公告：<span id="announcement-text"></span></div>
+
+  <div id="login-section">
+    <h3>請先登入</h3>
+    <input type="text" id="anon-name" placeholder="匿名使用者請輸入暱稱" />
+    <br />
+    <button id="btn-anon">匿名登入</button>
+    <button id="btn-google">使用 Google 登入</button>
+  </div>
+
+  <div id="container" style="display:none;">
+    <section id="groups">
+      <h4>聊天室群組</h4>
+      <ul id="groups-list"></ul>
+    </section>
+
+    <section id="chat">
+      <ul id="messages"></ul>
+      <form id="message-form">
+        <input type="text" id="message-input" placeholder="輸入訊息..." autocomplete="off" />
+        <button type="submit" id="send-btn">送出</button>
+      </form>
+    </section>
+
+    <section id="users">
+      <h4>在線用戶</h4>
+      <ul id="users-list"></ul>
+    </section>
+  </div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js";
+  import {
+    getDatabase, ref, onValue, push, set, remove, serverTimestamp, onDisconnect, update
+  } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-database.js";
+  import {
+    getAuth, signInAnonymously, signInWithPopup, GoogleAuthProvider,
+    onAuthStateChanged, signOut, updateProfile
+  } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-auth.js";
+
+  // TODO: 請換成你的 Firebase 設定
+  const firebaseConfig = {
+  apiKey: "AIzaSyBGwhduNhNnWVGv90NxYo24VqxBvTOtWdY",
+  authDomain: "china-trip-chat.firebaseapp.com",
+  databaseURL: "https://china-trip-chat-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "china-trip-chat",
+  storageBucket: "china-trip-chat.appspot.com",
+  messagingSenderId: "745385089997",
+  appId: "1:745385089997:web:665125e7a74bac1cdc4284"
+};
+
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  const auth = getAuth(app);
+
+  // DOM Elements
+  const loginSection = document.getElementById("login-section");
+  const anonNameInput = document.getElementById("anon-name");
+  const btnAnon = document.getElementById("btn-anon");
+  const btnGoogle = document.getElementById("btn-google");
+
+  const container = document.getElementById("container");
+  const groupsList = document.getElementById("groups-list");
+  const usersList = document.getElementById("users-list");
+  const messagesList = document.getElementById("messages");
+  const messageForm = document.getElementById("message-form");
+  const messageInput = document.getElementById("message-input");
+
+  const announcementBar = document.getElementById("announcement-bar");
+  const announcementText = document.getElementById("announcement-text");
+
+  let currentUser = null;
+  let currentGroup = null;
+
+  // 儲存使用者資料的參考
+  let userStatusDatabaseRef = null;
+
+  // 監聽公告欄
+  const annRef = ref(db, "system/announcement");
+  onValue(annRef, (snapshot) => {
+    const ann = snapshot.val();
+    if(ann && ann.trim() !== ""){
+      announcementText.textContent = ann;
+      announcementBar.style.display = "block";
+    } else {
+      announcementText.textContent = "";
+      announcementBar.style.display = "none";
+    }
+  });
+
+  // 監聽群組清單
+  const groupsRef = ref(db, "groups");
+  onValue(groupsRef, (snapshot) => {
+    groupsList.innerHTML = "";
+    snapshot.forEach(child => {
+      const groupName = child.key;
+      const li = document.createElement("li");
+      li.textContent = groupName;
+      if(currentGroup === groupName){
+        li.classList.add("selected");
+      }
+      li.onclick = () => {
+        selectGroup(groupName);
+      };
+      groupsList.appendChild(li);
+    });
+    if(!currentGroup && snapshot.exists()){
+      selectGroup(snapshot.val() && Object.keys(snapshot.val())[0]);
+    }
+  });
+
+  // 監聽在線用戶
+  const usersRef = ref(db, "users");
+  onValue(usersRef, (snapshot) => {
+    usersList.innerHTML = "";
+    snapshot.forEach(child => {
+      const user = child.val();
+      const li = document.createElement("li");
+      li.textContent = user.name + (user.online ? " ✅" : " ❌");
+      usersList.appendChild(li);
+    });
+  });
+
+  // 選擇群組並監聽訊息
+  let messagesRef = null;
+  let unsubscribeMessages = null;
+  function selectGroup(groupName){
+    currentGroup = groupName;
+    // 更新群組列表的選取樣式
+    [...groupsList.children].forEach(li=>{
+      li.classList.toggle("selected", li.textContent === groupName);
+    });
+    if(unsubscribeMessages) unsubscribeMessages();
+
+    messagesList.innerHTML = "";
+    messagesRef = ref(db, `groups/${groupName}/messages`);
+
+    unsubscribeMessages = onValue(messagesRef, (snapshot) => {
+      messagesList.innerHTML = "";
+      snapshot.forEach(child => {
+        const msg = child.val();
+        const li = document.createElement("li");
+
+        const timeSpan = document.createElement("span");
+        timeSpan.className = "time";
+        timeSpan.textContent = new Date(msg.timestamp).toLocaleTimeString();
+
+        li.appendChild(timeSpan);
+
+        const textNode = document.createTextNode(` ${msg.name}: ${msg.text}`);
+        li.appendChild(textNode);
+
+        messagesList.appendChild(li);
+      });
+      // 滾動到最底部
+      messagesList.scrollTop = messagesList.scrollHeight;
+    });
+  }
+
+  // 登入匿名
+  btnAnon.onclick = () => {
+    const name = anonNameInput.value.trim();
+    if(!name){
+      alert("匿名登入請輸入暱稱");
+      return;
+    }
+    signInAnonymously(auth)
+      .then(() => {
+        updateProfile(auth.currentUser, { displayName: name });
+      })
+      .catch(e => alert("匿名登入失敗：" + e.message));
+  };
+
+  // Google 登入
+  btnGoogle.onclick = () => {
+    const provider = new GoogleAuthProvider();
+    signInWithPopup(auth, provider).catch(e => alert("Google登入失敗：" + e.message));
+  };
+
+  // 登出（隱藏登入區，清除資料）
+  function logout(){
+    signOut(auth);
+  }
+
+  // 登入狀態監聽
+  onAuthStateChanged(auth, user => {
+    if(user){
+      currentUser = user;
+      loginSection.style.display = "none";
+      container.style.display = "flex";
+
+      // 更新使用者資料 (包含名稱和狀態)
+      const userRef = ref(db, "users/" + user.uid);
+      set(userRef, {
+        name: user.displayName || "匿名",
+        online: true,
+        lastLogin: Date.now()
+      });
+
+      // 斷線後將狀態設為離線
+      onDisconnect(userRef).update({ online: false });
+
+      if(!currentGroup){
+        // 先選第一個群組
+        onValue(groupsRef, snapshot => {
+          if(snapshot.exists()){
+            const firstGroup = Object.keys(snapshot.val())[0];
+            selectGroup(firstGroup);
+          }
+        }, { onlyOnce: true });
+      }
+    } else {
+      currentUser = null;
+      loginSection.style.display = "block";
+      container.style.display = "none";
+      currentGroup = null;
+      if(unsubscribeMessages) unsubscribeMessages();
+      messagesList.innerHTML = "";
+      usersList.innerHTML = "";
+      groupsList.innerHTML = "";
+    }
+  });
+
+  // 傳送訊息
+  messageForm.onsubmit = e => {
+    e.preventDefault();
+    const text = messageInput.value.trim();
+    if(!text) return;
+    if(!currentUser || !currentGroup){
+      alert("請先登入並選擇群組");
+      return;
+    }
+    const messagesRef = ref(db, `groups/${currentGroup}/messages`);
+    const newMsgRef = push(messagesRef);
+    set(newMsgRef, {
+      uid: currentUser.uid,
+      name: currentUser.displayName || "匿名",
+      text,
+      timestamp: Date.now()
+    }).then(() => {
+      messageInput.value = "";
+    }).catch(e => alert("送出失敗：" + e.message));
+  };
+
+  // 頁面離開時，清除在線狀態
+  window.addEventListener("beforeunload", () => {
+    if(currentUser){
+      const userRef = ref(db, "users/" + currentUser.uid);
+      update(userRef, { online: false });
+    }
+  });
+
+</script>
+</body>
+</html>
