@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>即時聊天室（手機版 UI）</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    header {
+      padding: 10px;
+      background: #4caf50;
+      color: white;
+      font-size: 1.2em;
+      text-align: center;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 10px;
+    }
+    #group-select {
+      margin-bottom: 10px;
+    }
+    #chat-box {
+      flex: 1;
+      border: 1px solid #ccc;
+      overflow-y: scroll;
+      padding: 10px;
+      background: #f9f9f9;
+      margin-bottom: 10px;
+    }
+    #chat-box p {
+      margin: 5px 0;
+      word-break: break-word;
+    }
+    #input-area {
+      display: flex;
+      gap: 10px;
+    }
+    #message {
+      flex: 1;
+      padding: 8px;
+      font-size: 1em;
+    }
+    button {
+      padding: 8px 12px;
+    }
+    #sidebar {
+      background: #eee;
+      padding: 10px;
+      font-size: 0.9em;
+    }
+    .timestamp {
+      font-size: 0.8em;
+      color: #888;
+    }
+    @media (min-width: 768px) {
+      body {
+        flex-direction: row;
+      }
+      main {
+        flex: 3;
+      }
+      #sidebar {
+        flex: 1;
+        height: 100vh;
+        overflow-y: auto;
+        border-left: 1px solid #ccc;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>即時聊天室</header>
+  <main>
+    <div id="auth-status">登入中...</div>
+    <div id="group-select">
+      選擇群組：
+      <select id="group">
+        <option value="general"># general</option>
+        <option value="news"># news</option>
+        <option value="games"># games</option>
+      </select>
+    </div>
+    <div id="chat-box"></div>
+    <div id="input-area">
+      <input id="message" placeholder="輸入訊息..." />
+      <button onclick="sendMessage()">傳送</button>
+    </div>
+  </main>
+  <aside id="sidebar">
+    <h3>使用者清單</h3>
+    <ul id="user-list"></ul>
+  </aside>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js";
+    import {
+      getDatabase, ref, push, onChildAdded, onValue, set, remove, onDisconnect
+    } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-database.js";
+    import {
+      getAuth, signInAnonymously, onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBGwhduNhNnWVGv90NxYo24VqxBvTOtWdY",
+      authDomain: "china-trip-chat.firebaseapp.com",
+      databaseURL: "https://china-trip-chat-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "china-trip-chat",
+      storageBucket: "china-trip-chat.appspot.com",
+      messagingSenderId: "745385089997",
+      appId: "1:745385089997:web:665125e7a74bac1cdc4284"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const auth = getAuth(app);
+
+    let currentUser = null;
+    let currentGroup = "general";
+    let listenerRef = null;
+
+    signInAnonymously(auth).catch((error) => {
+      alert("登入失敗：" + error.message);
+    });
+
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        currentUser = user;
+        const name = "訪客" + user.uid.slice(0, 6);
+        const userRef = ref(db, "users/" + user.uid);
+
+        set(userRef, { name: name, online: true });
+        onDisconnect(userRef).remove();
+
+        document.getElementById("auth-status").textContent = `登入成功：${name}`;
+        listenToGroup(currentGroup);
+        listenToUserList();
+      }
+    });
+
+    function listenToGroup(groupName) {
+      const chatBox = document.getElementById("chat-box");
+      chatBox.innerHTML = "";
+
+      const groupRef = ref(db, `groups/${groupName}/messages`);
+      listenerRef = groupRef;
+
+      onChildAdded(groupRef, (data) => {
+        const msg = data.val();
+        const p = document.createElement("p");
+        const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : "";
+        p.innerHTML = `<strong>${msg.name}</strong>：${msg.text} <span class="timestamp">(${time})</span>`;
+        chatBox.appendChild(p);
+        chatBox.scrollTop = chatBox.scrollHeight;
+      });
+    }
+
+    window.sendMessage = function () {
+      const text = document.getElementById("message").value.trim();
+      if (!currentUser || text === "") return;
+      const name = "訪客" + currentUser.uid.slice(0, 6);
+      push(ref(db, `groups/${currentGroup}/messages`), {
+        name,
+        text,
+        timestamp: Date.now()
+      });
+      document.getElementById("message").value = "";
+    };
+
+    document.getElementById("group").addEventListener("change", (e) => {
+      currentGroup = e.target.value;
+      listenToGroup(currentGroup);
+    });
+
+    function listenToUserList() {
+      const userListRef = ref(db, "users");
+      const ul = document.getElementById("user-list");
+      onValue(userListRef, (snapshot) => {
+        ul.innerHTML = "";
+        snapshot.forEach((child) => {
+          const user = child.val();
+          const li = document.createElement("li");
+          li.textContent = user.name + (user.online ? " ✅" : " ❌");
+          ul.appendChild(li);
+        });
+      });
+    }
+  </script>
+</body>
+</html>
+
